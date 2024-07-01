@@ -17,7 +17,7 @@ import javax.persistence.Id;
 public class MsgLog {
     @Id
     @Column(name="LOG_ID")
-    private Long id;
+    private Long logId;
 
     @Column(name = "CONTENT")
     private String content;

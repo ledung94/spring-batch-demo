@@ -1,53 +1,84 @@
 package com.example.reportservice.batch;
 
-
 import com.example.reportservice.batch.entity.MsgLog;
 import com.example.reportservice.batch.entity.MsgLogBak;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.JobParameters;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.StepExecution;
-import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing;
-import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
-import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
-import org.springframework.batch.core.configuration.annotation.StepScope;
+import org.springframework.batch.core.configuration.annotation.*;
+import org.springframework.batch.core.launch.JobLauncher;
 import org.springframework.batch.core.launch.support.RunIdIncrementer;
+import org.springframework.batch.core.launch.support.SimpleJobLauncher;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.item.ItemProcessor;
 import org.springframework.batch.item.database.JdbcBatchItemWriter;
 import org.springframework.batch.item.database.JdbcCursorItemReader;
+import org.springframework.batch.item.database.JdbcPagingItemReader;
+import org.springframework.batch.item.database.PagingQueryProvider;
 import org.springframework.batch.item.database.builder.JdbcBatchItemWriterBuilder;
 import org.springframework.batch.item.database.builder.JdbcCursorItemReaderBuilder;
+import org.springframework.batch.item.database.builder.JdbcPagingItemReaderBuilder;
+import org.springframework.batch.item.database.support.SqlPagingQueryProviderFactoryBean;
 import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.jdbc.core.BeanPropertyRowMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
 import javax.sql.DataSource;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
 @Configuration
 @Import(JobParametersListener.class)
-public class BatchConfig {
+public class BatchConfig extends DefaultBatchConfigurer {
+    private static final Logger logger = LoggerFactory.getLogger(BatchConfig.class);
 
     private final JobBuilderFactory jobBuilderFactory;
     private final StepBuilderFactory stepBuilderFactory;
     private final DataSource dataSource;
 
-    public BatchConfig(JobBuilderFactory jobBuilderFactory, StepBuilderFactory stepBuilderFactory, DataSource dataSource) {
+    public BatchConfig(JobBuilderFactory jobBuilderFactory, StepBuilderFactory stepBuilderFactory,
+            DataSource dataSource) {
         this.jobBuilderFactory = jobBuilderFactory;
         this.stepBuilderFactory = stepBuilderFactory;
         this.dataSource = dataSource;
     }
 
     @Bean
-    public Job endOfMonthJob(JobParametersListener jobParametersListener) {
-        System.out.println("endOfMonthJob");
+    public TaskExecutor taskExecutor() {
+        ThreadPoolTaskExecutor taskExecutor = new ThreadPoolTaskExecutor();
+        taskExecutor.setCorePoolSize(10);
+        taskExecutor.setMaxPoolSize(20);
+        taskExecutor.setQueueCapacity(100);
+        taskExecutor.setThreadNamePrefix("batch-thread-");
+        taskExecutor.initialize();
+        return taskExecutor;
+    }
+
+    @Override
+    protected JobLauncher createJobLauncher() throws Exception {
+        SimpleJobLauncher jobLauncher = new SimpleJobLauncher();
+        jobLauncher.setJobRepository(getJobRepository());
+        jobLauncher.setTaskExecutor(taskExecutor());
+        jobLauncher.afterPropertiesSet();
+        return jobLauncher;
+    }
+
+    @Bean
+    public Job endOfMonthJob(JobParametersListener jobParametersListener) throws Exception {
         return jobBuilderFactory.get("endOfMonthJob")
                 .incrementer(new RunIdIncrementer())
                 .listener(jobParametersListener)
@@ -57,12 +88,14 @@ public class BatchConfig {
     }
 
     @Bean
-    public Step insertDataStep() {
+    public Step insertDataStep() throws Exception {
         return stepBuilderFactory.get("insertDataStep")
                 .<MsgLog, MsgLogBak>chunk(1000)
-                .reader(yourDataReader(null))
+                .reader(pagingItemReader(null))
                 .processor(yourDataProcessor())
                 .writer(yourDataWriter())
+                .taskExecutor(taskExecutor())
+                // .throttleLimit(10) // Giới hạn số luồng đồng thời
                 .build();
     }
 
@@ -78,14 +111,11 @@ public class BatchConfig {
         return (contribution, chunkContext) -> {
             StepExecution stepExecution = chunkContext.getStepContext().getStepExecution();
             JobParameters jobParameters = stepExecution.getJobParameters();
-
-            // Lấy giá trị của tham số 'currentDate' từ JobParameters
             Date currentDate = jobParameters.getDate("currentDate");
             SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MM-yyyy");
             String formattedDate = dateFormat.format(currentDate);
-
-            String query = "DELETE FROM MSG_LOG WHERE LOG_TIME <= STR_TO_DATE('" + formattedDate + " 23:59:59', '%d-%m-%Y %H:%i:%s')";
-            System.out.println(query);
+            String query = "DELETE FROM MSG_LOG WHERE LOG_TIME <= STR_TO_DATE('" + formattedDate
+                    + " 23:59:59', '%d-%m-%Y %H:%i:%s')";
             JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
             jdbcTemplate.update(query);
             return RepeatStatus.FINISHED;
@@ -95,23 +125,67 @@ public class BatchConfig {
     @Bean
     @StepScope
     public JdbcCursorItemReader<MsgLog> yourDataReader(@Value("#{jobParameters['currentDate']}") Date currentDate) {
-        System.out.println("READ MONTH");
         SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MM-yyyy");
         String formattedDate = dateFormat.format(currentDate);
-        String query = "SELECT * FROM MSG_LOG WHERE LOG_TIME <= STR_TO_DATE('" + formattedDate + " 23:59:59', '%d-%m-%Y %H:%i:%s')";
-        System.out.println(query);
+        // String query = "SELECT * FROM MSG_LOG WHERE LOG_TIME <= STR_TO_DATE('" +
+        // formattedDate + " 23:59:59', '%d-%m-%Y %H:%i:%s')";
+        String query = "SELECT * FROM MSG_LOG WHERE LOG_TIME <= STR_TO_DATE('" + formattedDate
+                + " 23:59:59', '%d-%m-%Y %H:%i:%s')";
+        logger.info("SQL: {}", query);
         return new JdbcCursorItemReaderBuilder<MsgLog>()
                 .dataSource(dataSource)
                 .name("yourDataReader")
                 .sql(query)
-                .rowMapper(new BeanPropertyRowMapper<>(MsgLog.class))
+                .rowMapper(new BeanPropertyRowMapper<>(MsgLog.class) {
+                    @Override
+                    public MsgLog mapRow(ResultSet rs, int rowNumber) throws SQLException {
+                        try {
+                            return super.mapRow(rs, rowNumber);
+                        } catch (SQLException e) {
+                            System.err.println("Error mapping row " + rowNumber + ": " + e.getMessage());
+                            throw e;
+                        }
+                    }
+                })
                 .build();
+    }
+
+    @Bean
+    @StepScope
+    public JdbcPagingItemReader<MsgLog> pagingItemReader(@Value("#{jobParameters['currentDate']}") Date currentDate)
+            throws Exception {
+        return new JdbcPagingItemReaderBuilder<MsgLog>()
+                .dataSource(dataSource)
+                .name("pagingItemReader")
+                .queryProvider(queryProvider())
+                .rowMapper(new BeanPropertyRowMapper<>(MsgLog.class))
+                .pageSize(1000)
+                .build();
+    }
+
+    @Bean
+    public PagingQueryProvider queryProvider() throws Exception {
+        SqlPagingQueryProviderFactoryBean factoryBean = new SqlPagingQueryProviderFactoryBean();
+        SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MM-yyyy");
+        String formattedDate = dateFormat.format(new Date());
+        // String where = "WHERE LOG_TIME <= STR_TO_DATE('"+ formattedDate +"',
+        // '%d-%m-%Y %H:%i:%s')";
+        String where = "WHERE 1=1";
+        factoryBean.setDataSource(dataSource);
+        factoryBean.setSelectClause("SELECT *");
+        factoryBean.setFromClause("FROM MSG_LOG");
+        factoryBean.setWhereClause(where);
+        factoryBean.setSortKey("LOG_ID");
+        return factoryBean.getObject();
     }
 
     @Bean
     public ItemProcessor<MsgLog, MsgLogBak> yourDataProcessor() {
         return item -> {
             MsgLogBak msgLogBak = new MsgLogBak();
+            // Log các thông tin để kiểm tra
+            // logger.info("Đang thực hiện công việc gì đó trên thread {}",
+            // Thread.currentThread().getName());
             BeanUtils.copyProperties(item, msgLogBak);
             return msgLogBak;
         };
@@ -121,7 +195,8 @@ public class BatchConfig {
     public JdbcBatchItemWriter<MsgLogBak> yourDataWriter() {
         return new JdbcBatchItemWriterBuilder<MsgLogBak>()
                 .dataSource(dataSource)
-                .sql("INSERT INTO MSG_LOG_BAK (LOG_ID, CONTENT) VALUES (:id, :content)")
+                .sql("INSERT INTO MSG_LOG_BAK (LOG_ID, CONTENT) VALUES (:logId, :content)")
+                .assertUpdates(false)
                 .beanMapped()
                 .build();
     }
@@ -137,8 +212,6 @@ public class BatchConfig {
 
     @Bean
     public Step yourStep() {
-        System.out.println("another JOB");
-        // Định nghĩa các step ở đây
         return stepBuilderFactory.get("otherStep")
                 .<MsgLog, MsgLogBak>chunk(1000)
                 .reader(otherReader())
@@ -150,14 +223,22 @@ public class BatchConfig {
     @Bean
     @StepScope
     public JdbcCursorItemReader<MsgLog> otherReader() {
-        System.out.println("READ OTHER");
         String query = "SELECT * FROM MSG_LOG";
-        System.out.println(query);
         return new JdbcCursorItemReaderBuilder<MsgLog>()
                 .dataSource(dataSource)
                 .name("otherReader")
                 .sql(query)
-                .rowMapper(new BeanPropertyRowMapper<>(MsgLog.class))
+                .rowMapper(new BeanPropertyRowMapper<>(MsgLog.class) {
+                    @Override
+                    public MsgLog mapRow(ResultSet rs, int rowNumber) throws SQLException {
+                        try {
+                            return super.mapRow(rs, rowNumber);
+                        } catch (SQLException e) {
+                            System.err.println("Error mapping row " + rowNumber + ": " + e.getMessage());
+                            throw e;
+                        }
+                    }
+                })
                 .build();
     }
 
@@ -165,6 +246,8 @@ public class BatchConfig {
     public ItemProcessor<MsgLog, MsgLogBak> otherProcess() {
         return item -> {
             MsgLogBak msgLogBak = new MsgLogBak();
+            // Log các thông tin để kiểm tra
+            System.out.println("Processing MsgLog: " + item);
             BeanUtils.copyProperties(item, msgLogBak);
             return msgLogBak;
         };
@@ -178,6 +261,4 @@ public class BatchConfig {
                 .beanMapped()
                 .build();
     }
-
-    // Define yourDataReader, yourDataProcessor, yourDataWriter beans here
 }

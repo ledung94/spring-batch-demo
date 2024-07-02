@@ -41,3 +41,33 @@
     private void createProcedure(String query) {
         jdbcTemplate.execute(query);
     }
+
+
+    DELIMITER //
+
+    CREATE PROCEDURE process_cutoff_msg_logs (
+        IN p_to_date VARCHAR(50)
+    )
+    BEGIN
+        DECLARE EXIT HANDLER FOR SQLEXCEPTION
+        BEGIN
+            ROLLBACK;
+            RESIGNAL;
+        END;
+
+        START TRANSACTION;
+
+        -- Thực hiện các thao tác như insert, update, delete...
+        INSERT INTO MSG_LOG_BAK (LOGID, REQ_RESP, REQUEST, RESPONSE, TRACE_ID, STATUS, LOG_TIME, CHANNEL, SERVICE_CODE, TEMP_TYPE, TEMP_TITLE, CONTENT, SOURCE, EXTEN_TYPE, DESCRIPTION)
+        SELECT LOGID, REQ_RESP, REQUEST, RESPONSE, TRACE_ID, STATUS, LOG_TIME, CHANNEL, SERVICE_CODE, TEMP_TYPE, TEMP_TITLE, CONTENT, SOURCE, EXTEN_TYPE, DESCRIPTION
+        FROM MSG_LOG
+        WHERE LOG_TIME <= STR_TO_DATE(p_to_date, '%d-%m-%Y %H:%i:%s.%f');
+
+        DELETE FROM MSG_LOG
+        WHERE LOG_TIME <= STR_TO_DATE(p_to_date, '%d-%m-%Y %H:%i:%s.%f');
+
+        COMMIT;
+    END;
+    //
+
+    DELIMITER ;

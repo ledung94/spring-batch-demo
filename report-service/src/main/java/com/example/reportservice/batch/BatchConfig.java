@@ -21,6 +21,7 @@ import org.springframework.batch.item.database.PagingQueryProvider;
 import org.springframework.batch.item.database.builder.JdbcBatchItemWriterBuilder;
 import org.springframework.batch.item.database.builder.JdbcCursorItemReaderBuilder;
 import org.springframework.batch.item.database.builder.JdbcPagingItemReaderBuilder;
+import org.springframework.batch.item.database.support.OraclePagingQueryProvider;
 import org.springframework.batch.item.database.support.SqlPagingQueryProviderFactoryBean;
 import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.beans.BeanUtils;
@@ -40,6 +41,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.Map;
 
 @Configuration
 @Import(JobParametersListener.class)
@@ -95,7 +98,6 @@ public class BatchConfig extends DefaultBatchConfigurer {
                 .processor(yourDataProcessor())
                 .writer(yourDataWriter())
                 .taskExecutor(taskExecutor())
-                // .throttleLimit(10) // Giới hạn số luồng đồng thời
                 .build();
     }
 
@@ -127,8 +129,6 @@ public class BatchConfig extends DefaultBatchConfigurer {
     public JdbcCursorItemReader<MsgLog> yourDataReader(@Value("#{jobParameters['currentDate']}") Date currentDate) {
         SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MM-yyyy");
         String formattedDate = dateFormat.format(currentDate);
-        // String query = "SELECT * FROM MSG_LOG WHERE LOG_TIME <= STR_TO_DATE('" +
-        // formattedDate + " 23:59:59', '%d-%m-%Y %H:%i:%s')";
         String query = "SELECT * FROM MSG_LOG WHERE LOG_TIME <= STR_TO_DATE('" + formattedDate
                 + " 23:59:59', '%d-%m-%Y %H:%i:%s')";
         logger.info("SQL: {}", query);
@@ -154,10 +154,15 @@ public class BatchConfig extends DefaultBatchConfigurer {
     @StepScope
     public JdbcPagingItemReader<MsgLog> pagingItemReader(@Value("#{jobParameters['currentDate']}") Date currentDate)
             throws Exception {
+        Map<String, Object> parameterValues = new HashMap<>();
+        SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MM-yyyy");
+        String formattedDate = dateFormat.format(new Date());
+        parameterValues.put("toDate", formattedDate);
         return new JdbcPagingItemReaderBuilder<MsgLog>()
                 .dataSource(dataSource)
                 .name("pagingItemReader")
                 .queryProvider(queryProvider())
+                .parameterValues(parameterValues)
                 .rowMapper(new BeanPropertyRowMapper<>(MsgLog.class))
                 .pageSize(1000)
                 .build();
@@ -165,16 +170,13 @@ public class BatchConfig extends DefaultBatchConfigurer {
 
     @Bean
     public PagingQueryProvider queryProvider() throws Exception {
+        // If using oracle database => OraclePagingQueryProvider
+        // If having no sort key or data have no index => paging will be failed
         SqlPagingQueryProviderFactoryBean factoryBean = new SqlPagingQueryProviderFactoryBean();
-        SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MM-yyyy");
-        String formattedDate = dateFormat.format(new Date());
-        // String where = "WHERE LOG_TIME <= STR_TO_DATE('"+ formattedDate +"',
-        // '%d-%m-%Y %H:%i:%s')";
-        String where = "WHERE 1=1";
         factoryBean.setDataSource(dataSource);
         factoryBean.setSelectClause("SELECT *");
         factoryBean.setFromClause("FROM MSG_LOG");
-        factoryBean.setWhereClause(where);
+        factoryBean.setWhereClause("WHERE LOG_TIME <= STR_TO_DATE(:toDate, '%d-%m-%Y %H:%i:%s')");
         factoryBean.setSortKey("LOG_ID");
         return factoryBean.getObject();
     }

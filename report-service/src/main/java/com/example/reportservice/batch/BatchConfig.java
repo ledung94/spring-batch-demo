@@ -249,7 +249,7 @@ public class BatchConfig extends DefaultBatchConfigurer {
         return item -> {
             MsgLogBak msgLogBak = new MsgLogBak();
             // Log các thông tin để kiểm tra
-            System.out.println("Processing MsgLog: " + item);
+            // System.out.println("Processing MsgLog: " + item);
             BeanUtils.copyProperties(item, msgLogBak);
             return msgLogBak;
         };

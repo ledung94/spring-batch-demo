@@ -1,6 +1,5 @@
 package com.example.common.utils;
 
-import com.example.common.models.User;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.SneakyThrows;
 

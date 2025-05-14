@@ -16,7 +16,7 @@ public class FileUtils {
             File file = new File(filePath);
             try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
                 for (String sql : values) {
-                    writer.write(sql);
+                    writer.write(sql + "; \n /");
                     writer.newLine();  // Ghi xuống dòng sau mỗi câu SQL
                 }
             }

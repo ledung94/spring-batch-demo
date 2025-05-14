@@ -17,8 +17,8 @@
   <component name="JavacSettings">
     <option name="ADDITIONAL_OPTIONS_OVERRIDE">
       <module name="common" options="-parameters" />
-      <module name="front-end" options="-parameters" />
-      <module name="report-service" options="-parameters" />
+      <module name="front-end" options="" />
+      <module name="report-service" options="" />
       <module name="service-domain" options="-parameters" />
     </option>
   </component>

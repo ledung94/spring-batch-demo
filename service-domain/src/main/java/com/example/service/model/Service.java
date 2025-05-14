@@ -13,7 +13,7 @@ public class Service {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private String id = "SERVICE_SEQ.NEXTVAL";
+    private String id = "SERVICE_ID_SEQ.NEXTVAL";
 
     @Column(name = "SERVICE_CODE", nullable = false, length = 50, unique = true)
     private String serviceCode;
@@ -37,19 +37,19 @@ public class Service {
     private String serviceApi;
 
     @Column(name = "CREATE_BY", nullable = false, length = 50)
-    private String createBy;
+    private String createBy = "ADMIN";
 
     @Column(name = "CREATE_TIME", nullable = false)
-    private LocalDateTime createTime;
+    private String createTime = "CURRENT_DATE";
 
     @Column(name = "UPDATE_BY", length = 50)
-    private String updateBy;
+    private String updateBy = "ADMIN";
 
     @Column(name = "UPDATE_TIME")
-    private LocalDateTime updateTime;
+    private String updateTime = "CURRENT_DATE";
 
     @Column(name = "STATUS", nullable = false, length = 1)
-    private String status;
+    private String status = "A";
 
     @Column(name = "APPROVE_BY", length = 50)
     private String approveBy;
@@ -70,7 +70,7 @@ public class Service {
     private String remark;
 
     @Column(name = "PRIORITY")
-    private Integer priority;
+    private Double priority;
 
     @Column(name = "TOPIC", length = 20)
     private String topic;
@@ -79,13 +79,13 @@ public class Service {
     private String channelId;
 
     @Column(name = "NEED_TEMP")
-    private Integer needTemp = 1;
+    private Double needTemp = 1.0;
 
     @Column(name = "IB_SERVICE", length = 2)
-    private Integer ibService = 1;
+    private Double ibService = 1.0;
 
     @Column(name = "CDP_SERVICE")
-    private Integer cdpService = 0;
+    private Double cdpService = (double) 0;
 
     // Getters and setters
 }

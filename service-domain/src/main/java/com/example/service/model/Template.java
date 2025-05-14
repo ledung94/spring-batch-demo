@@ -13,7 +13,7 @@ public class Template {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private String id = "SERVICE_SEQ.NEXTVAL";
+    private String id = "TEMPLATE_ID_SEQ.NEXTVAL";
 
     @Column(name = "TEMP_CODE", nullable = false, length = 60)
     private String tempCode;
@@ -41,22 +41,22 @@ public class Template {
     private String tempPath;
 
     @Column(name = "CREATE_BY", nullable = false, length = 50)
-    private String createBy;
+    private String createBy = "ADMIN";
 
     @Column(name = "CREATE_TIME", nullable = false)
-    private LocalDateTime createTime;
+    private String createTime = "CURRENT_DATE";
 
     @Column(name = "UPDATE_BY", length = 50)
-    private String updateBy;
+    private String updateBy = "ADMIN";
 
     @Column(name = "UPDATE_TIME")
-    private LocalDateTime updateTime;
+    private String updateTime = "CURRENT_DATE";
 
     @Column(name = "STATUS", nullable = false, length = 1)
-    private String status;
+    private String status = "A";
 
     @Column(name = "SERVICE_ID")
-    private Long serviceId;
+    private String serviceId;
 
     @Column(name = "ALERT_TYPE", length = 10)
     private String alertType;
@@ -82,7 +82,7 @@ public class Template {
     private BigDecimal price;
 
     @Column(name = "PRIORITY", length = 20)
-    private String priority;
+    private String priority = "MEDIUM";
 
     // Getters and setters
 }

@@ -4,7 +4,10 @@ import com.example.common.utils.ExcelUtils;
 import com.example.common.utils.FileUtils;
 import com.example.common.utils.StringUtils;
 import com.example.service.model.file.request.UploadFileRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
 import java.lang.reflect.Field;
@@ -16,11 +19,18 @@ import static com.example.common.utils.StringUtils.convertKeysToCamelCase;
 
 @Service
 public class FileService {
-    public void upload(UploadFileRequest request) {
+    private static final Logger log = LoggerFactory.getLogger(FileService.class);
 
-        List<Map<String, Object>> data = extract(request);
-        List<com.example.service.model.Service> services = convertToObject(data, com.example.service.model.Service.class);
-        writeSQLToFile(services);
+    public void upload(UploadFileRequest request) {
+        try {
+            MultipartFile file = request.getFile();
+            List<Map<String, Object>> data = extract(request);
+            String className = StringUtils.extractClassName(file.getOriginalFilename());
+            List objects = convertToObject(data, StringUtils.findClassByName(className));
+            writeSQLToFile(objects);
+        } catch (ClassNotFoundException e) {
+            log.error("FileHandle | Error | {}", e.getMessage());
+        }
     }
 
     private List<Map<String, Object>> extract(UploadFileRequest request) {
@@ -48,7 +58,8 @@ public class FileService {
                 try {
                     field = clazz.getDeclaredField(entry.getKey());
                 } catch (NoSuchFieldException e) {
-                    throw new RuntimeException(e);
+                    log.error("Failed to get field {} | error : {}", entry.getKey(), e.getMessage());
+                    continue;
                 }
                 field.setAccessible(true); // Cho phép truy cập vào các field private
                 try {
